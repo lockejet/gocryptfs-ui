@@ -139,14 +139,15 @@ jobs:
       - name: Install dist
         shell: bash
         run: |
-          for i in $(seq 1 15); do
-            if bash -c "${{ matrix.install_dist.run }}"; then
-              # 部分 runner 的 ~/.cargo/bin 不在默认 PATH；显式导出给后续步骤
+          for i in 1 2 3; do
+            # 注意：不能用 `curl ... | sh`（管道退出码取 sh，curl 504 会被吞掉）；
+            # 先落盘再执行，确保失败可重试。
+            if curl --proto '=https' --tlsv1.2 --retry 3 -LsSf https://github.com/axodotdev/cargo-dist/releases/download/v0.32.0/cargo-dist-installer.sh -o "$RUNNER_TEMP/cargo-dist-installer.sh" && sh "$RUNNER_TEMP/cargo-dist-installer.sh"; then
               echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
               exit 0
             fi
             echo "cargo-dist install attempt $i failed (transient GitHub 504?), retrying..."
-            sleep 20
+            sleep 15
           done
           echo "fallback: cargo install cargo-dist"
           cargo install cargo-dist --version 0.32.0 --locked
