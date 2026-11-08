@@ -140,6 +140,8 @@ jobs:
         run: |
           for i in 1 2 3 4 5 6; do
             if bash -c "${{ matrix.install_dist.run }}"; then
+              # 部分 runner 的 ~/.cargo/bin 不在默认 PATH；显式导出给后续步骤
+              echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
               exit 0
             fi
             echo "cargo-dist install attempt $i failed (transient GitHub 504?), retrying..."
