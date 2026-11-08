@@ -994,15 +994,15 @@ fn embedded_backend_is_materialized_and_runnable() {
     let cli = backend::install_to(&dir, &version_line()).expect("释放内嵌后端失败");
     assert!(cli.is_file(), "缺少 gocryptfs-cli: {}", cli.display());
     assert!(
-        dir.join("lib/gocryptfs-lib.sh").is_file(),
-        "缺少 lib/gocryptfs-lib.sh"
+        !dir.join("lib").exists(),
+        "0.9 起是单文件 CLI，不应再释放 lib/ 目录"
     );
-    assert!(dir.join("lib/i18n.sh").is_file(), "缺少 lib/i18n.sh");
-    assert_eq!(
-        std::fs::read_to_string(&cli).unwrap(),
-        backend::CLI_SCRIPT,
-        "释放出来的后端与二进制内嵌内容不一致"
+    let released = std::fs::read_to_string(&cli).unwrap();
+    assert!(
+        released.contains(&format!("CLI_VERSION=\"{}\"", version_line())),
+        "释放出来的后端没有烘焙版本号"
     );
+    // 注：`--version` 分支里的比较字面量 `!= "@VERSION@"` 会刻意保留（已烘焙的脚本不会再命中该分支）
     // 版本文件：gocryptfs-cli --version 从自身目录读取
     let ver_path = dir.join(backend::VERSION_FILE);
     assert!(ver_path.is_file(), "缺少 VERSION 文件");
@@ -1064,9 +1064,13 @@ fn embedded_backend_is_materialized_and_runnable() {
     // 自愈：文件被破坏／旧版本残留时，重新释放会覆盖回去
     std::fs::write(&cli, "#!/bin/bash\nexit 0\n").unwrap();
     backend::install_to(&dir, &version_line()).expect("自愈失败");
+    let expected = backend::CLI_SCRIPT.replace(
+        "CLI_VERSION=\"@VERSION@\"",
+        &format!("CLI_VERSION=\"{}\"", version_line()),
+    );
     assert_eq!(
         std::fs::read_to_string(&cli).unwrap(),
-        backend::CLI_SCRIPT,
+        expected,
         "被篡改的后端未被重新释放覆盖"
     );
 }

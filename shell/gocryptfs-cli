@@ -1,6 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
+# >>> BUNDLE:LOADER >>>
+# 源码模式：定位自身并从 lib/ 加载库函数。
+# 单文件包（tools/bundle-cli.sh 生成）会把本段整体删除，库函数已内联在文件里。
 SOURCE="${BASH_SOURCE[0]}"
 while [ -L "$SOURCE" ]; do
     DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
@@ -10,12 +13,12 @@ done
 SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 LIB_DIR="$SCRIPT_DIR/lib"
 
-# 加载 lib（单文件）
 if [ -f "$LIB_DIR/gocryptfs-lib.sh" ]; then
     source "$LIB_DIR/gocryptfs-lib.sh"
 else
     source "$LIB_DIR/common.sh"
 fi
+# <<< BUNDLE:LOADER <<<
 
 # 旧目录迁移（lib 已在 source 时尝试过；这里保证 CLI 侧也执行一次）
 migrate_legacy_dirs 2>/dev/null || true
@@ -23,7 +26,11 @@ migrate_legacy_dirs 2>/dev/null || true
 # 路径解析与 Rust 侧保持一致（XDG 优先；GOCRYPTFS_* 优先，旧变量兼容）
 CONFIG_FILE="${GOCRYPTFS_CONFIG:-${CONFIG_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/gocryptfs-ui/config.yaml}}"
 DATA_DIR="${GOCRYPTFS_DATA_DIR:-${DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/gocryptfs-ui}}"
+# >>> BUNDLE:VERSION >>>
+# 源码模式读脚本同目录 VERSION；单文件包在打包时替换成字面版本（不依赖 VERSION 文件）
+CLI_VERSION=""
 VERSION_FILE="$SCRIPT_DIR/VERSION"
+# <<< BUNDLE:VERSION <<<
 JSON_MODE=false
 VERBOSE=false
 DRY_RUN=false
@@ -78,7 +85,9 @@ while [ $i -le $# ]; do
             DATA_DIR_EXPLICIT=1
             ;;
         -V|--version)
-            if [ -r "$VERSION_FILE" ]; then
+            if [ -n "${CLI_VERSION:-}" ] && [ "$CLI_VERSION" != "@VERSION@" ]; then
+                printf 'gocryptfs-cli %s\n' "$CLI_VERSION"
+            elif [ -r "${VERSION_FILE:-}" ]; then
                 printf 'gocryptfs-cli %s\n' "$(cat "$VERSION_FILE")"
             else
                 printf 'gocryptfs-cli %s\n' "unknown"

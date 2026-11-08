@@ -1,5 +1,5 @@
 # ============================================================
-# gocryptfs-tui Makefile
+# gocryptfs-ui Makefile
 # ============================================================
 # 详细发布流程见 RELEASING.md
 # 查看所有目标: make help
@@ -30,9 +30,11 @@ RELEASE_PREAMBLE ?= tools/release-preamble.md  # 发布说明开头插入的固�
 # ---------- 安装路径（install-local 用）----------
 PREFIX  ?= $(HOME)/.local
 BINDIR  ?= $(PREFIX)/bin
-# Shell 后端与 TUI 必须成套安装，否则 TUI 会调用旧的 gocryptfs-cli（输出语言不一致）
-SHELL_LIBDIR ?= $(PREFIX)/lib/gocryptfs-tui
-SHELL_BINDIR ?= $(BINDIR)
+# 安装元数据（VERSION / 安装清单）：share/<app>/install/
+# 注意：share/<app>/ 与数据目录（XDG_DATA_HOME/gocryptfs-ui）是同一个目录，
+# 运行期数据（backend/、state.json）与安装元数据互不干扰；卸载只删 install/。
+SHAREDIR     ?= $(PREFIX)/share/gocryptfs-ui
+INSTALL_META ?= $(SHAREDIR)/install
 # 系统级安装（install-system / uninstall-system 用）
 SYSTEM_PREFIX ?= /usr/local
 
@@ -95,11 +97,19 @@ build-all:  ## 交叉编译全部目标（gnu/musl × amd64/arm64）
 # ============================================================
 
 .PHONY: check
-check: fmt-check lint i18n-check changelog-check test  ## 运行全部检查：fmt + clippy + i18n + changelog + 单元测试
+check: fmt-check lint i18n-check changelog-check cli-bundle-check test  ## 运行全部检查：fmt + clippy + i18n + changelog + 单文件 CLI + 单元测试
 
 .PHONY: i18n-check
 i18n-check:  ## 校验 i18n 键表、调用点参数与中文残留
 	python3 tools/i18n_check.py
+
+.PHONY: cli-bundle
+cli-bundle:  ## 重新生成单文件 CLI（shell/gocryptfs-cli.bundle）
+	sh tools/bundle-cli.sh
+
+.PHONY: cli-bundle-check
+cli-bundle-check:  ## 校验 shell/gocryptfs-cli.bundle 与源码一致
+	sh tools/bundle-cli.sh --check
 
 .PHONY: lint
 lint:  ## 运行 clippy（-D warnings）
@@ -269,15 +279,15 @@ dist-plan:  ## 预览 cargo-dist 构建计划
 install: install-local  ## 安装到 $(PREFIX)（默认 ~/.local，等价 install-local）
 
 .PHONY: install-local
-install-local: build  ## 安装到 $(PREFIX)（默认 ~/.local；TUI + Shell 后端成套安装）
-	@install -d "$(BINDIR)" "$(SHELL_LIBDIR)/lib"
+install-local: build  ## 安装到 $(PREFIX)（默认 ~/.local；TUI + Web + 单文件 CLI）
+	install -d "$(BINDIR)" "$(INSTALL_META)"
 	install -m 0755 "$(BUILD_DIR)/$(BIN)" "$(BINDIR)/$(BIN)"
-	install -m 0644 shell/lib/*.sh "$(SHELL_LIBDIR)/lib/"
-	install -m 0755 shell/gocryptfs-cli "$(SHELL_LIBDIR)/gocryptfs-cli"
-	ln -sf "$(SHELL_LIBDIR)/gocryptfs-cli" "$(SHELL_BINDIR)/gocryptfs-cli"
+	@if [ -f "$(BUILD_DIR)/gocryptfs-web" ]; then 		install -m 0755 "$(BUILD_DIR)/gocryptfs-web" "$(BINDIR)/gocryptfs-web"; 	fi
+	sh tools/bundle-cli.sh --version "$(BUILD_VERSION)" -o "$(BINDIR)/gocryptfs-cli"
+	printf '%s\n' "$(BUILD_VERSION)" > "$(INSTALL_META)/VERSION"
 	@echo ">>> 已安装到 $(BINDIR)/$(BIN)"
-	@echo ">>> 已安装 shell 后端: $(SHELL_BINDIR)/gocryptfs-cli -> $(SHELL_LIBDIR)/gocryptfs-cli"
-	@echo "    确保 $(BINDIR) 在 PATH 中且在 /usr/local/bin 之前（避免调用到旧版 CLI）"
+	@echo ">>> 已安装单文件 CLI: $(BINDIR)/gocryptfs-cli（真实文件，非链接）"
+	@echo ">>> 安装元数据: $(INSTALL_META)"
 
 .PHONY: install-system
 install-system:  ## 安装到 $(SYSTEM_PREFIX)（默认 /usr/local，内部按需 sudo）
@@ -285,13 +295,13 @@ install-system:  ## 安装到 $(SYSTEM_PREFIX)（默认 /usr/local，内部按�
 
 .PHONY: uninstall
 uninstall:  ## 卸载 $(PREFIX) 中的安装（默认 ~/.local；改 PREFIX=/usr/local 可卸系统安装）
-	@case "$(SHELL_LIBDIR)" in */lib/gocryptfs-tui) ;; *) \
-		echo "[!] 拒绝删除异常路径: $(SHELL_LIBDIR)"; exit 1;; esac
+	@case "$(INSTALL_META)" in */share/gocryptfs-ui/install) ;; *) \
+		echo "[!] 拒绝删除异常路径: $(INSTALL_META)"; exit 1;; esac
 	@[ "$(PREFIX)" != "/" ] || { echo "[!] PREFIX 不能是 /"; exit 1; }
-	-rm -f "$(BINDIR)/$(BIN)"
-	-rm -f "$(SHELL_BINDIR)/gocryptfs-cli"
-	-rm -rf "$(SHELL_LIBDIR)"
-	@echo ">>> 已卸载 $(BINDIR)/$(BIN) 与 $(SHELL_LIBDIR)"
+	-rm -f "$(BINDIR)/$(BIN)" "$(BINDIR)/gocryptfs-web" "$(BINDIR)/gocryptfs-cli"
+	-rm -rf "$(INSTALL_META)"
+	-rm -rf "$(PREFIX)/lib/gocryptfs-ui" "$(PREFIX)/lib/gocryptfs-tui"
+	@echo ">>> 已卸载 $(BINDIR) 中的 gocryptfs-* 与 $(INSTALL_META)"
 	@resolved="$$(command -v gocryptfs-cli 2>/dev/null || true)"; \
 	if [ -n "$$resolved" ]; then \
 		echo "    提示: PATH 中仍能解析到 $$resolved（可能是另一份旧安装）"; \

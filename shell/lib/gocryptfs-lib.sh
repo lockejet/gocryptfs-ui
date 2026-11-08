@@ -28,7 +28,8 @@ if ! declare -F t >/dev/null 2>&1; then
 fi
 
 # § 0.1 函数索引
-if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+# GFS_BUNDLED=1 表示已内联进单文件 gocryptfs-cli（此时 BASH_SOURCE[0] == $0 属正常，不要自索引退出）
+if [ "${BASH_SOURCE[0]}" = "${0}" ] && [ "${GFS_BUNDLED:-0}" != "1" ]; then
     i18n_init
     te lib.self_index
     exit 0

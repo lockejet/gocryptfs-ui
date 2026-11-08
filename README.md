@@ -108,12 +108,15 @@ Install locations (identical across all three modes):
 | Option | Location | Notes |
 |---|---|---|
 | `--user` (default) | `~/.local` | No sudo required |
-| `--system` | `/usr/local` | Uses sudo as needed, and links `gocryptfs-cli` into `/usr/local/bin` by default |
+| `--system` | `/usr/local` | Uses sudo as needed |
 | `--prefix DIR` | Custom | e.g. `/opt/gocryptfs-ui` |
 
-All three modes install `<prefix>/bin/gocryptfs-tui` and `<prefix>/lib/gocryptfs-ui/`
-(the standalone Shell backend + `VERSION`) and write an install manifest; none of them **modify the shell profile** — they
-only print the `export PATH=…` you need to run; config and data directories follow XDG (see below), independent of install method.
+All three modes install `<prefix>/bin/gocryptfs-tui`, `<prefix>/bin/gocryptfs-web` and a
+**single-file, self-contained** `<prefix>/bin/gocryptfs-cli` (a regular file, not a symlink;
+there is no `lib/` directory any more), and write `VERSION` plus the install manifest to
+`<prefix>/share/gocryptfs-ui/install/`. None of them **modify the shell profile** — they only
+print the `export PATH=…` you need to run; config and data directories follow XDG (see below),
+independent of install method.
 
 ### ① One-liner (no source, no toolchain)
 
@@ -121,7 +124,7 @@ only print the `export PATH=…` you need to run; config and data directories fo
 # User-level → ~/.local/bin (default, no sudo)
 curl -LsSf https://github.com/lockejet/gocryptfs-ui/releases/latest/download/gocryptfs-ui-install.sh | sh
 
-# System-level → /usr/local/bin (sudo as needed, and links the standalone CLI)
+# System-level → /usr/local/bin (sudo as needed)
 curl -LsSf https://github.com/lockejet/gocryptfs-ui/releases/latest/download/gocryptfs-ui-install.sh \
   | sh -s -- --system
 
@@ -129,9 +132,9 @@ curl -LsSf https://github.com/lockejet/gocryptfs-ui/releases/latest/download/goc
 curl -LsSf .../gocryptfs-ui-install.sh | sh -s -- --user --version v0.5.0
 ```
 
-The script will: detect the architecture/libc → download the matching `tar.xz` and **verify its sha256** → fetch
-`shell/` from the same Release's `source.tar.gz` as the standalone backend (guaranteeing it matches the TUI version) → run
-`--check-deps` → write the install manifest (`INSTALLED.json` / `INSTALLED.files`).
+The script will: detect the architecture/libc → download the matching `tar.xz` and **verify its sha256** → install the
+single-file CLI (`shell/gocryptfs-cli.bundle`, version-matched to the TUI) from the same Release's `source.tar.gz` → run
+`--check-deps` → write the install manifest (`INSTALLED.json` / `INSTALLED.files` and `VERSION` under `share/gocryptfs-ui/install/`).
 
 > **Offline / air-gapped**: just download `gocryptfs-ui-<target>.tar.xz` from
 > [Releases](https://github.com/lockejet/gocryptfs-ui/releases), extract it, and put `gocryptfs-tui` in
@@ -169,7 +172,7 @@ make build                             # or cargo build --release
 | `--user` / `--system` / `--prefix DIR` | Install location (default `~/.local`) |
 | `--local` / `--from-release[=vX.Y.Z]` / `--version vX.Y.Z` | Force a mode or pin a version |
 | `--uninstall` | Uninstall exactly what the install manifest lists |
-| `--link-cli` / `--no-link-cli` | Whether to link `gocryptfs-cli` into `<prefix>/bin` |
+| `--link-cli` / `--no-link-cli` | Deprecated (the CLI is always a regular file); accepted as no-ops |
 | `--no-deps-check` | Skip the post-install dependency check |
 
 Post-install self-check:
@@ -181,20 +184,19 @@ gocryptfs-tui --check-deps
 gocryptfs-tui --print-paths     # troubleshooting: see every path actually in use at a glance
 ```
 
-> **Canonical location of the standalone CLI**: on first run the TUI unpacks the embedded backend to
-> `${XDG_DATA_HOME:-~/.local/share}/gocryptfs-ui/backend/gocryptfs-cli`,
-> identically in all three modes. To use it directly from the command line, create a symlink once:
-> ```bash
-> ln -sf "${XDG_DATA_HOME:-$HOME/.local/share}/gocryptfs-ui/backend/gocryptfs-cli" \
->        "${XDG_BIN_HOME:-$HOME/.local/bin}/gocryptfs-cli"
-> ```
-> `--system` links `<prefix>/lib/gocryptfs-ui/gocryptfs-cli` into `/usr/local/bin` automatically.
+> **Canonical location of the standalone CLI**: `<prefix>/bin/gocryptfs-cli` (single-file,
+> self-contained, directly executable, no other files needed). The TUI/Web by default use the same
+> script embedded in the binary and extracted on first run to
+> `${XDG_DATA_HOME:-~/.local/share}/gocryptfs-ui/backend/gocryptfs-cli`; override with
+> `GOCRYPTFS_CLI=/path/to/gocryptfs-cli gocryptfs-tui` when needed. If `PATH` contains an older
+> `gocryptfs-cli`, the TUI prints the backend path it actually resolves (avoiding version skew).
 
 ### Upgrading
 
-The TUI and the Shell backend (`gocryptfs-cli` + `lib/*.sh`) must be **updated as a set**, otherwise you may see
-inconsistencies such as "the UI is already in English but the output pane is still in Chinese". The embedded backend is updated
-along with the binary (the unpack directory `${XDG_DATA_HOME:-~/.local/share}/gocryptfs-ui/backend/` is rewritten only when its contents change).
+The TUI/Web embedded backend ships in the same Release as the binary; `<prefix>/bin/gocryptfs-cli` comes from the same
+Release's single-file bundle (version baked in), so re-running the installer upgrades everything as a set — no more version
+skew such as "the UI is already in English but the output pane is still in Chinese". The legacy multi-file `lib/*.sh`
+layout is cleaned up automatically on install.
 
 ```bash
 # ① One-liner: rerun the same command
@@ -230,9 +232,10 @@ make uninstall PREFIX=/opt/gocryptfs-ui   # custom prefix
 > state `${XDG_STATE_HOME:-~/.local/state}/gocryptfs-ui/` (logs, history and rotated files).
 > Delete these three directories yourself for a full cleanup.
 >
-> `install.sh --uninstall` reads `<prefix>/lib/gocryptfs-ui/INSTALLED.files` and deletes the entries one by one,
-> and only allows deleting paths inside the prefix; `make uninstall` deletes `$PREFIX/bin/gocryptfs-tui`,
-> `$PREFIX/bin/gocryptfs-cli`, and `$PREFIX/lib/gocryptfs-ui/`.
+> `install.sh --uninstall` reads `<prefix>/share/gocryptfs-ui/install/INSTALLED.files` and deletes the entries
+> one by one, and only allows deleting paths inside the prefix; it only removes the `install/` metadata — runtime data
+> such as `backend/` in the same directory is kept. `make uninstall` deletes `$PREFIX/bin/gocryptfs-{tui,web,cli}`,
+> `$PREFIX/share/gocryptfs-ui/install/` and the legacy `$PREFIX/lib/gocryptfs-{ui,tui}/`.
 >
 > If you installed 0.4.x or earlier with cargo-dist's `-installer.sh` (into `~/.cargo/bin` or `~/.local/bin`):
 > `rm -f ~/.local/bin/gocryptfs-tui ~/.cargo/bin/gocryptfs-tui`.
@@ -294,7 +297,7 @@ gocryptfs-tui --print-paths
 The TUI top bar shows two lines of live information (line 1: Bin/CLI + version, line 2: Config/Data):
 
 ```
-Bin: /usr/local/bin/gocryptfs-tui  CLI:  /usr/local/lib/gocryptfs-ui/gocryptfs-cli          v0.7.0
+Bin: /usr/local/bin/gocryptfs-tui  CLI:  /usr/local/bin/gocryptfs-cli                        v0.9.0
 Config: /home/you/.config/gocryptfs-ui/config.yaml  Data: /home/you/.local/share/gocryptfs-ui
 ```
 

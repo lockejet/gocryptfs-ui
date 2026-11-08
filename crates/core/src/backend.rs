@@ -1,11 +1,14 @@
-// backend.rs — 内嵌 Shell 后端（gocryptfs-cli + lib/*.sh）
+// backend.rs — 内嵌单文件 Shell 后端（`shell/gocryptfs-cli.bundle`）
 //
-// 背景：cargo-dist 只打包 Rust 构建产物，`gocryptfs-cli` 及其 Shell 库不在发行包里，
-// 用户从 GitHub Release 安装后会遇到 "执行 CLI 失败"。这里把后端源码编译进二进制，
+// 背景：cargo-dist 只打包 Rust 构建产物，`gocryptfs-cli` 不在发行包里，
+// 用户从 GitHub Release 安装后会遇到 "执行 CLI 失败"。这里把单文件后端编译进二进制，
 // 首次运行时释放到数据目录（`<data_dir>/backend/`），从而：
 //   * 安装一次即可用，TUI 与后端版本始终配套；
 //   * 不再受系统里旧版 `gocryptfs-cli` 影响；
 //   * 环境变量 `GOCRYPTFS_CLI` 仍可覆盖（自定义/调试后端）。
+//
+// 单文件包由 `tools/bundle-cli.sh` 从 `shell/gocryptfs-cli` + `shell/lib/*.sh` 生成，
+// 里面带有版本占位符，释放时替换为二进制版本（`CLI_VERSION="..."`）。
 //
 // 释放是幂等的：内容一致则不动，二进制升级（内容变化）时自动覆盖。
 
@@ -15,20 +18,15 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 
-/// 内嵌的后端脚本（与二进制同版本、同源码）
-pub const CLI_SCRIPT: &str = include_str!("../../../shell/gocryptfs-cli");
-pub const LIB_SCRIPT: &str = include_str!("../../../shell/lib/gocryptfs-lib.sh");
-pub const I18N_SCRIPT: &str = include_str!("../../../shell/lib/i18n.sh");
+/// 内嵌的单文件后端脚本（与二进制同版本、同源码，由 tools/bundle-cli.sh 生成）
+pub const CLI_SCRIPT: &str = include_str!("../../../shell/gocryptfs-cli.bundle");
 
-/// 版本文件（`gocryptfs-cli --version` 读取同目录的 VERSION）
+/// 版本文件（`gocryptfs-cli --version` 的兜底来源；单文件包已把版本烘焙进去）
 pub const VERSION_FILE: &str = "VERSION";
 
-/// (相对路径, 内容, 是否可执行)
-const SCRIPTS: [(&str, &str, bool); 3] = [
-    ("gocryptfs-cli", CLI_SCRIPT, true),
-    ("lib/gocryptfs-lib.sh", LIB_SCRIPT, false),
-    ("lib/i18n.sh", I18N_SCRIPT, false),
-];
+/// 生产文件（相对路径, 内容, 是否可执行）：
+/// 单文件包自带全部库函数，无需 `lib/` 目录
+const SCRIPTS: [(&str, &str, bool); 1] = [("gocryptfs-cli", CLI_SCRIPT, true)];
 
 static EMBEDDED_CLI: OnceLock<PathBuf> = OnceLock::new();
 static ERROR: OnceLock<String> = OnceLock::new();
@@ -40,14 +38,29 @@ pub fn extract_dir(data_dir: &Path) -> PathBuf {
 }
 
 /// 把内嵌后端释放到指定目录（不含全局状态，便于测试）。
-/// `version` 写入同目录的 `VERSION`，供 `gocryptfs-cli --version` 显示。
+/// `version` 既写入同目录的 `VERSION`，也烘焙进单文件脚本的 `CLI_VERSION`。
 pub fn install_to(dir: &Path, version: &str) -> Result<PathBuf, String> {
     fs::create_dir_all(dir).map_err(|e| format!("{}: {}", dir.display(), e))?;
     for (rel, content, executable) in SCRIPTS {
-        write_if_changed(&dir.join(rel), content, executable)?;
+        let content = bake_version(content, version);
+        write_if_changed(&dir.join(rel), &content, executable)?;
+    }
+    // 0.9 之前释放的是 "gocryptfs-cli + lib/*.sh" 多文件，清理旧 lib/ 避免残留
+    let old_lib = dir.join("lib");
+    if old_lib.is_dir() {
+        let _ = fs::remove_dir_all(&old_lib);
     }
     write_if_changed(&dir.join(VERSION_FILE), &format!("{}\n", version), false)?;
     Ok(dir.join("gocryptfs-cli"))
+}
+
+/// 把单文件脚本里的版本占位符替换为字面版本
+/// （只替换赋值行 `CLI_VERSION="@VERSION@"`；`--version` 里的比较字面量保持不变）
+fn bake_version(script: &str, version: &str) -> String {
+    script.replace(
+        "CLI_VERSION=\"@VERSION@\"",
+        &format!("CLI_VERSION=\"{}\"", version),
+    )
 }
 
 /// 释放内嵌后端到 `<data_dir>/backend`，成功后记录路径供 [`embedded_path`] 使用。
