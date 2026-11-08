@@ -70,6 +70,19 @@ check "CLI --version 报告 gocryptfs-cli 版本" "yes" \
 check "CLI 可独立运行 (--help 含 --lang)" "yes" \
     "$(env HOME="$TMP/home-cli" XDG_CONFIG_HOME="$TMP/home-cli/.config" "$P1/bin/gocryptfs-cli" --help 2>/dev/null | grep -q -- '--lang' && echo yes || echo no)"
 
+# ---- 1b. 旧布局升级（≤0.8：bin/gocryptfs-cli 是指向 lib/gocryptfs-ui 的符号链接）----
+P8="$TMP/upgrade"
+mkdir -p "$P8/bin" "$P8/lib/gocryptfs-ui/lib"
+: > "$P8/lib/gocryptfs-ui/gocryptfs-cli"
+ln -s "$P8/lib/gocryptfs-ui/gocryptfs-cli" "$P8/bin/gocryptfs-cli"
+cp "$BIN" "$P8/bin/gocryptfs-tui"
+out="$(sh "$INSTALL" --prefix "$P8" --no-build --no-deps-check 2>&1 || true)"
+check "旧布局升级: 安装成功" "yes" \
+    "$(printf '%s' "$out" | grep -q '\[OK\] installed' && echo yes || echo no)"
+check "旧布局升级: CLI 变真实文件" "yes" \
+    "$([ -f "$P8/bin/gocryptfs-cli" ] && [ ! -L "$P8/bin/gocryptfs-cli" ] && echo yes || echo no)"
+check "旧布局升级: 旧 lib/ 已清理" "no" "$(exists "$P8/lib/gocryptfs-ui")"
+
 # ---- 2. --system 语义（用 --prefix 覆盖落点以便在沙箱测试）----
 P2="$TMP/system"
 sh "$INSTALL" --system --prefix "$P2" --no-build --no-deps-check >/dev/null 2>&1

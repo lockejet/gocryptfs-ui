@@ -403,6 +403,9 @@ if [ -n "$CLI_BUNDLE" ] && [ -f "$CLI_BUNDLE" ]; then
         sed "s|^CLI_VERSION=\"@VERSION@\"$|CLI_VERSION=\"$BIN_VERSION\"|" "$CLI_BUNDLE" > "$STAGE/gocryptfs-cli"
     fi
     chmod 0755 "$STAGE/gocryptfs-cli"
+    # ≤0.8 的 gocryptfs-cli 是指向 lib/gocryptfs-ui 的符号链接；上面已清理 LIBDIR，
+    # 残留的悬空链接会让 cp 拒绝写入（"not writing through dangling symlink"）。
+    priv rm -f "$BINDIR/gocryptfs-cli"
     priv cp -f "$STAGE/gocryptfs-cli" "$BINDIR/gocryptfs-cli"
     priv chmod 0755 "$BINDIR/gocryptfs-cli"
     record "$BINDIR/gocryptfs-cli"
