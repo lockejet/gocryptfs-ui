@@ -7,6 +7,8 @@ members = ["cargo:."]
 cargo-dist-version = "0.32.0"
 # CI backends to support
 ci = "github"
+# 允许本地加固生成的 workflow（release.yml 的安装步骤带重试，规避 GitHub CDN 偶发 504）
+allow-dirty = ["ci"]
 # 安装脚本策略：**不使用** cargo-dist 的 shell/powershell installer
 # （它会自动改 shell profile、默认落点与我们的脚本不同、0.3.0 起也没有卸载入口），
 # 改由 extra-artifacts 发布我们自己的 install.sh（见文件末尾），三种安装模式共用一个脚本。
