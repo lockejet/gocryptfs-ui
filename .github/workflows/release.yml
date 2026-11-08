@@ -65,14 +65,15 @@ jobs:
         # failing. otherwise `sh` won't catch that `curl` returned non-0
         shell: bash
         run: |
-          for i in 1 2 3 4 5 6; do
+          for i in $(seq 1 15); do
             if curl --proto '=https' --tlsv1.2 --retry 3 -LsSf https://github.com/axodotdev/cargo-dist/releases/download/v0.32.0/cargo-dist-installer.sh -o "$RUNNER_TEMP/cargo-dist-installer.sh" && sh "$RUNNER_TEMP/cargo-dist-installer.sh"; then
               exit 0
             fi
             echo "cargo-dist installer attempt $i failed (transient GitHub 504?), retrying..."
-            sleep 15
+            sleep 20
           done
-          exit 1
+          echo "fallback: cargo install cargo-dist"
+          cargo install cargo-dist --version 0.32.0 --locked
       - name: Cache dist
         uses: actions/upload-artifact@v7
         with:
@@ -138,16 +139,18 @@ jobs:
       - name: Install dist
         shell: bash
         run: |
-          for i in 1 2 3 4 5 6; do
+          for i in $(seq 1 15); do
             if bash -c "${{ matrix.install_dist.run }}"; then
               # 部分 runner 的 ~/.cargo/bin 不在默认 PATH；显式导出给后续步骤
               echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
               exit 0
             fi
             echo "cargo-dist install attempt $i failed (transient GitHub 504?), retrying..."
-            sleep 15
+            sleep 20
           done
-          exit 1
+          echo "fallback: cargo install cargo-dist"
+          cargo install cargo-dist --version 0.32.0 --locked
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       # Get the dist-manifest
       - name: Fetch local artifacts
         uses: actions/download-artifact@v8
