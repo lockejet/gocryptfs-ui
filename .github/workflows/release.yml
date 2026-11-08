@@ -64,7 +64,15 @@ jobs:
         # we specify bash to get pipefail; it guards against the `curl` command
         # failing. otherwise `sh` won't catch that `curl` returned non-0
         shell: bash
-        run: "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/axodotdev/cargo-dist/releases/download/v0.32.0/cargo-dist-installer.sh | sh"
+        run: |
+          for i in 1 2 3 4 5 6; do
+            if curl --proto '=https' --tlsv1.2 --retry 3 -LsSf https://github.com/axodotdev/cargo-dist/releases/download/v0.32.0/cargo-dist-installer.sh -o "$RUNNER_TEMP/cargo-dist-installer.sh" && sh "$RUNNER_TEMP/cargo-dist-installer.sh"; then
+              exit 0
+            fi
+            echo "cargo-dist installer attempt $i failed (transient GitHub 504?), retrying..."
+            sleep 15
+          done
+          exit 1
       - name: Cache dist
         uses: actions/upload-artifact@v7
         with:
@@ -128,7 +136,16 @@ jobs:
             echo "$HOME/.cargo/bin" >> $GITHUB_PATH
           fi
       - name: Install dist
-        run: ${{ matrix.install_dist.run }}
+        shell: bash
+        run: |
+          for i in 1 2 3 4 5 6; do
+            if bash -c "${{ matrix.install_dist.run }}"; then
+              exit 0
+            fi
+            echo "cargo-dist install attempt $i failed (transient GitHub 504?), retrying..."
+            sleep 15
+          done
+          exit 1
       # Get the dist-manifest
       - name: Fetch local artifacts
         uses: actions/download-artifact@v8
