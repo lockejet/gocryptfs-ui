@@ -708,28 +708,30 @@ gocryptfs-web user delete alice
 生效路径/依赖查看、亮/暗/跟随系统主题、手机自适应布局。**创建/删除加密卷的向导暂未进入 Web UI**，
 请用 TUI/CLI 完成。
 
-**作为服务常驻**（用户级 systemd）：
+**作为服务常驻**（系统级 systemd，推荐；与 rbackup-ui 同一套骨架）：
 
 ```bash
-mkdir -p ~/.config/systemd/user
-cp contrib/systemd/gocryptfs-web.service ~/.config/systemd/user/
-systemctl --user daemon-reload && systemctl --user enable --now gocryptfs-web
+sudo sed -e "s|__USER__|$USER|g" -e "s|__GROUP__|$(id -gn)|g" \
+    -e "s|__HOME__|$HOME|g" contrib/systemd/gocryptfs-web.service \
+  | sudo tee /etc/systemd/system/gocryptfs-web.service
+sudo systemctl daemon-reload && sudo systemctl enable --now gocryptfs-web
+# 之前用过用户级单元？先停用，避免抢端口：
+# systemctl --user disable --now gocryptfs-web
 ```
 
-> 该单元**刻意不带 systemd 沙箱**（`PrivateTmp`/`ProtectSystem`/`NoNewPrivileges` 等）：gocryptfs
-> 的挂载必须位于 host mount namespace，`fusermount` 也需要 setuid 权限。请改在网络层防护：
-> 保持只监听 `127.0.0.1`，远程访问用 TLS 反向代理，例如
->
-> ```
-> # Caddy
-> https://vaults.example.com { reverse_proxy 127.0.0.1:30032 }
-> ```
+> 该单元**刻意不带 mount-namespace 沙箱**（`PrivateTmp`/`ProtectSystem`/`NoNewPrivileges` 等）：
+> gocryptfs 的挂载必须位于 host mount namespace，`fusermount` 也需要 setuid 权限。请改在网络层
+> 防护：保持只监听 `127.0.0.1`，远程访问用 TLS 反向代理。启动时加 `--trust-proxy`，扫码链接、
+> 「手机登录」链接、`Secure` cookie 与客户端 IP 才会正确。若想**域名与私网 IP:端口两个入口都能用**，
+> 不要固定 `--public-url`——链接会按每个请求的 `X-Forwarded-Proto`/`Host` 自适应。现成的
+> systemd + Nginx 模板见 [contrib/](contrib/) 与 [docs/deploy.md](docs/deploy.md)。
 
 **从 Windows / macOS / 手机访问**：Web UI 是纯浏览器客户端——服务端留在拥有 FUSE 挂载的 Linux 主机上，
 Windows/macOS/手机只需要浏览器。前面放一个 TLS 反向代理（Caddy/Nginx，域名示例 `example.com`），
-启动时加 `--public-url https://example.com --trust-proxy`，然后浏览器打开 `https://example.com`。
-这样终端二维码和「手机登录」链接也能被其他设备访问。反代配置、Windows 客户端清单与排错见
-[docs/remote-access.zh-CN.md](docs/remote-access.zh-CN.md)。
+启动时加 `--trust-proxy`（仅当固定只从一个入口访问时再加 `--public-url https://example.com`），
+然后浏览器打开 `https://example.com`。
+这样终端二维码和「手机登录」链接也能被其他设备访问。部署（systemd + Nginx 双入口）见 [docs/deploy.md](docs/deploy.md)，
+反代配置、Windows 客户端清单与排错见 [docs/remote-access.zh-CN.md](docs/remote-access.zh-CN.md)。
 
 **安全默认值**：仅回环监听、token/cookie 会话（`HttpOnly`、`SameSite=Strict`）、写操作 CSRF 头校验、
 CSP/no-sniff/referrer-policy 响应头、口令只经 stdin 传给 `gocryptfs-cli`（不落盘、不入日志）。

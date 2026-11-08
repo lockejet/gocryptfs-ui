@@ -1,40 +1,44 @@
-# gocryptfs-web 用户级 systemd 单元
+# gocryptfs-web systemd 系统级单元模板（推荐：与 rbackup-web 同一套骨架）
 #
-# 安装（用户级，不需要 root）：
-#   mkdir -p ~/.config/systemd/user
-#   cp contrib/systemd/gocryptfs-web.service ~/.config/systemd/user/
-#   systemctl --user daemon-reload
-#   systemctl --user enable --now gocryptfs-web
-#   systemctl --user status gocryptfs-web
+# 用法：
+#   sed -e 's|__USER__|admin|g' -e 's|__GROUP__|users|g' -e 's|__HOME__|/home/admin|g' \
+#       contrib/systemd/gocryptfs-web.service | sudo tee /etc/systemd/system/gocryptfs-web.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now gocryptfs-web
 #
-# 首次启动会生成 token 并打印到 journal：
-#   journalctl --user -u gocryptfs-web -n 20
-#
-# 默认只监听 127.0.0.1:30032；远程访问请用反向代理（TLS 由代理终结），
-# 例如 caddy: `reverse_proxy 127.0.0.1:30032`（对外 44332 → 本机 30032）。
+# 说明：
+#   - 必须以「拥有这些加密卷的普通用户」运行（不要用 root）；
+#   - 只监听 loopback，对外入口交给 Nginx/Caddy（见 contrib/nginx/ 与 docs/deploy.md）；
+#   - 反代场景必须加 --trust-proxy；不要固定 --public-url，这样域名与
+#     IP:端口两个入口都能生成正确的扫码链接与 Secure cookie；
+#   - gocryptfs 的挂载/卸载必须在 host mount namespace 中完成，因此本单元
+#     刻意不使用创建私有 mount namespace 的选项（PrivateTmp/ProtectSystem/
+#     ProtectHome/ProtectKernelTunables/ProtectControlGroups），也不能开
+#     NoNewPrivileges/RestrictSUIDSGID（会禁用 fusermount 的 setuid）；
+#   - 若之前用过用户级单元，请先 systemctl --user disable --now gocryptfs-web
+#     并删除，避免两个进程抢同一端口。
 
 [Unit]
 Description=gocryptfs-web — browser UI for gocryptfs vaults
 Documentation=https://github.com/lockejet/gocryptfs-ui
-After=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
-# 必须以「拥有这些加密卷的普通用户」运行（不要用 root）
-ExecStart=%h/.local/bin/gocryptfs-web --listen 127.0.0.1:30032
+User=__USER__
+Group=__GROUP__
+Environment=HOME=__HOME__
+WorkingDirectory=__HOME__
+ExecStart=__HOME__/.local/bin/gocryptfs-web --listen 127.0.0.1:30032 --trust-proxy
 Restart=on-failure
 RestartSec=2
+TimeoutStopSec=30
 
-# 重要：gocryptfs 的挂载/卸载必须在 **host mount namespace** 中完成。
-# 因此本单元刻意不使用会创建私有 mount namespace 的选项：
-#   PrivateTmp / ProtectSystem / ProtectHome / ProtectKernelTunables / ProtectControlGroups
-#   （这些选项会让服务看到一份挂载副本，且它自己挂载的卷在主机上不可见）
-# 也不能开 NoNewPrivileges / RestrictSUIDSGID：会禁用 fusermount 的 setuid。
-# 安全性由「只监听 127.0.0.1 + token/TLS 反向代理 + 普通用户运行」保证。
+# 重要：挂载/卸载需要在 host mount namespace 中完成，不要加这些选项：
 NoNewPrivileges=no
 PrivateTmp=no
 ProtectSystem=no
 ProtectHome=no
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target

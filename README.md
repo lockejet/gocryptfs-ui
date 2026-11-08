@@ -715,31 +715,35 @@ progress over SSE), browse the unified JSONL log, see effective paths/dependenci
 auto theme, responsive mobile layout. Vault creation/deletion wizards are not in the Web UI yet —
 use the TUI/CLI for those.
 
-**Run as a service** (user unit):
+**Run as a service** (system unit, recommended — same shape as rbackup-ui):
 
 ```bash
-mkdir -p ~/.config/systemd/user
-cp contrib/systemd/gocryptfs-web.service ~/.config/systemd/user/
-systemctl --user daemon-reload && systemctl --user enable --now gocryptfs-web
+sudo sed -e "s|__USER__|$USER|g" -e "s|__GROUP__|$(id -gn)|g" \
+    -e "s|__HOME__|$HOME|g" contrib/systemd/gocryptfs-web.service \
+  | sudo tee /etc/systemd/system/gocryptfs-web.service
+sudo systemctl daemon-reload && sudo systemctl enable --now gocryptfs-web
+# previously used the user unit? disable it first to avoid port conflicts:
+# systemctl --user disable --now gocryptfs-web
 ```
 
-> The unit deliberately ships **without** systemd sandboxing options (no `PrivateTmp`,
+> The unit deliberately ships **without** mount-namespace sandboxing (no `PrivateTmp`,
 > `ProtectSystem`, `NoNewPrivileges`, ...): gocryptfs mounts must live in the host mount
 > namespace, and `fusermount` needs its setuid helper. Protect it at the network layer instead —
-> keep it on `127.0.0.1` and put a TLS reverse proxy in front for remote access:
->
-> ```
-> # Caddy
-> https://vaults.example.com { reverse_proxy 127.0.0.1:30032 }
-> ```
+> keep it on `127.0.0.1` and put a TLS reverse proxy in front. Start it with `--trust-proxy`
+> so the QR code, phone-login link, `Secure` cookies and client IPs are correct behind the proxy.
+> Do **not** pin `--public-url` if you want a domain *and* a private `IP:port` entry to both work:
+> links adapt to each request's `X-Forwarded-Proto`/`Host`. Ready-made systemd + Nginx templates
+> live in [contrib/](contrib/) and [docs/deploy.md](docs/deploy.md).
 
 **Access from Windows / macOS / phone**: the Web UI is a pure browser client — the server stays on
 the Linux host that owns the FUSE mounts, and Windows/macOS/phones only need a browser. Put a TLS
-reverse proxy in front (Caddy/Nginx, `example.com`), start the server with
-`--public-url https://example.com --trust-proxy`, and open `https://example.com`. This also makes
+reverse proxy in front (Caddy/Nginx, `example.com`), start the server with `--trust-proxy`
+(optionally `--public-url https://example.com` only if you always use that single entry), and
+open `https://example.com`. This also makes
 the terminal QR code and the "phone login" link reachable from other devices. See
-[docs/remote-access.md](docs/remote-access.md) for Caddy/Nginx configs, the Windows client
-checklist and troubleshooting.
+[docs/deploy.md](docs/deploy.md) (systemd + Nginx dual entry) and
+[docs/remote-access.md](docs/remote-access.md) (Caddy/Nginx configs, Windows client checklist,
+troubleshooting).
 
 **Security defaults**: loopback-only listen, token/cookie sessions (`HttpOnly`, `SameSite=Strict`),
 CSRF header check on writes, CSP/no-sniff/referrer-policy headers, passphrases only travel through
